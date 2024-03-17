@@ -29,8 +29,10 @@ import 'package:flutter_toastr/flutter_toastr.dart';
 import 'package:highlight/languages/javascript.dart';
 import 'package:network_proxy/network/components/script_manager.dart';
 import 'package:network_proxy/network/util/logger.dart';
+import 'package:network_proxy/ui/component/multi_window.dart';
 import 'package:network_proxy/ui/component/utils.dart';
 import 'package:network_proxy/ui/component/widgets.dart';
+import 'package:network_proxy/utils/lang.dart';
 
 bool _refresh = false;
 
@@ -104,57 +106,45 @@ class _ScriptWidgetState extends State<ScriptWidget> {
                             SizedBox(
                                 width: 300,
                                 child: SwitchWidget(
-                                  title: localizations.enableScript,
-                                  subtitle: localizations.scriptUseDescribe,
-                                  value: data.enabled,
-                                  onChanged: (value) {
-                                    data.enabled = value;
-                                    _refreshScript();
-                                  },
-                                )),
+                                    title: localizations.enableScript,
+                                    subtitle: localizations.scriptUseDescribe,
+                                    value: data.enabled,
+                                    onChanged: (value) {
+                                      data.enabled = value;
+                                      _refreshScript();
+                                    })),
                             Expanded(
                                 child: Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 const SizedBox(width: 10),
-                                FilledButton(
-                                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.only(left: 20, right: 20)),
-                                  onPressed: scriptEdit,
-                                  child: Text(localizations.add),
+                                FilledButton.icon(
+                                    icon: const Icon(Icons.add, size: 18),
+                                    onPressed: scriptAdd,
+                                    label: Text(localizations.add)),
+                                const SizedBox(width: 10),
+                                FilledButton.icon(
+                                  icon: const Icon(Icons.input_rounded, size: 18),
+                                  onPressed: import,
+                                  label: Text(localizations.import),
                                 ),
                                 const SizedBox(width: 10),
-                                OutlinedButton(
-                                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.only(left: 20, right: 20)),
-                                  onPressed: import,
-                                  child: Text(localizations.import),
-                                )
+                                FilledButton.icon(
+                                  icon: const Icon(Icons.terminal, size: 18),
+                                  onPressed: consoleLog,
+                                  label: Text(localizations.logger),
+                                ),
                               ],
                             )),
                             const SizedBox(width: 15)
                           ]),
                           const SizedBox(height: 5),
-                          Container(
-                              padding: const EdgeInsets.only(top: 10),
-                              constraints: const BoxConstraints(maxHeight: 500, minHeight: 300),
-                              decoration: BoxDecoration(border: Border.all(color: Colors.grey.withOpacity(0.2))),
-                              child: SingleChildScrollView(
-                                  child: Column(children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                        width: 200,
-                                        padding: const EdgeInsets.only(left: 10),
-                                        child: Text(localizations.name)),
-                                    SizedBox(width: 50, child: Text(localizations.enable, textAlign: TextAlign.center)),
-                                    const VerticalDivider(),
-                                    const Expanded(child: Text("URL")),
-                                  ],
-                                ),
-                                const Divider(thickness: 0.5),
-                                ScriptList(scripts: data.list, windowId: widget.windowId),
-                              ]))),
+                          ScriptList(scripts: data.list, windowId: widget.windowId),
                         ]))));
+  }
+
+  consoleLog() {
+    openScriptConsoleWindow();
   }
 
   //导入js
@@ -167,8 +157,17 @@ class _ScriptWidgetState extends State<ScriptWidget> {
 
     try {
       var json = jsonDecode(await File(file).readAsString());
-      var scriptItem = ScriptItem.fromJson(json);
-      (await ScriptManager.instance).addScript(scriptItem, json['script']);
+      var scriptManager = (await ScriptManager.instance);
+      if (json is List<dynamic>) {
+        for (var item in json) {
+          var scriptItem = ScriptItem.fromJson(item);
+          await scriptManager.addScript(scriptItem, item['script']);
+        }
+      } else {
+        var scriptItem = ScriptItem.fromJson(json);
+        await scriptManager.addScript(scriptItem, json['script']);
+      }
+
       _refreshScript();
       if (mounted) {
         FlutterToastr.show(localizations.importSuccess, context);
@@ -183,12 +182,125 @@ class _ScriptWidgetState extends State<ScriptWidget> {
   }
 
   /// 添加脚本
-  scriptEdit() async {
+  scriptAdd() async {
     showDialog(barrierDismissible: false, context: context, builder: (_) => const ScriptEdit()).then((value) {
       if (value != null) {
         setState(() {});
       }
     });
+  }
+}
+
+class ScriptConsoleWidget extends StatefulWidget {
+  final int windowId;
+
+  const ScriptConsoleWidget({super.key, required this.windowId});
+
+  @override
+  State<ScriptConsoleWidget> createState() => _ScriptConsoleState();
+}
+
+class LogInfo {
+  final DateTime time = DateTime.now();
+  final String level;
+  final String output;
+
+  LogInfo(this.level, this.output);
+}
+
+class _ScriptConsoleState extends State<ScriptConsoleWidget> {
+  final List<LogInfo> logs = [];
+  final ScrollController _scrollController = ScrollController();
+  bool scrollEnd = true;
+
+  AppLocalizations get localizations => AppLocalizations.of(context)!;
+
+  @override
+  void initState() {
+    super.initState();
+    DesktopMultiWindow.invokeMethod(0, "registerConsoleLog", widget.windowId);
+    DesktopMultiWindow.setMethodHandler((call, fromWindowId) async {
+      // print("consoleLog  $scrollEnd $fromWindowId ${call.arguments}");
+      if (call.method == 'consoleLog') {
+        setState(() {
+          var logInfo = LogInfo(call.arguments['level'], call.arguments['output']);
+          logs.add(logInfo);
+        });
+
+        if (scrollEnd) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              _scrollController.animateTo(_scrollController.position.maxScrollExtent,
+                  duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+            }
+          });
+        }
+      }
+      return "ok";
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // print("script build");
+    return Scaffold(
+        backgroundColor: Theme.of(context).dialogBackgroundColor,
+        appBar: AppBar(
+            title: Text(localizations.logger, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+            actions: [
+              IconButton(
+                tooltip: localizations.scrollEnd,
+                onPressed: () {
+                  setState(() {
+                    scrollEnd = !scrollEnd;
+                  });
+                  if (scrollEnd) {
+                    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+                  }
+                },
+                icon: Icon(Icons.update, color: scrollEnd ? Theme.of(context).colorScheme.primary : null),
+              ),
+              const SizedBox(width: 10),
+              IconButton(
+                  tooltip: localizations.clear,
+                  onPressed: () => setState(() {
+                        logs.clear();
+                      }),
+                  icon: const Icon(Icons.delete)),
+              const SizedBox(width: 10)
+            ],
+            toolbarHeight: 36,
+            centerTitle: true),
+        body: Container(
+            decoration: BoxDecoration(border: Border.all(color: Colors.grey.withOpacity(0.3))),
+            margin: const EdgeInsets.all(5),
+            padding: const EdgeInsets.all(5),
+            child: ListView.builder(
+              itemCount: logs.length,
+              controller: _scrollController,
+              itemBuilder: (BuildContext context, int index) {
+                Color? color;
+                if (logs[index].level == 'error') {
+                  color = Colors.red;
+                } else if (logs[index].level == 'warn') {
+                  color = Colors.orange;
+                }
+
+                //脚本日志 样式展示
+                return Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Row(
+                      children: [
+                        Text(logs[index].time.format(), style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                        const SizedBox(width: 10),
+                        Text(logs[index].level, style: TextStyle(fontSize: 13, color: color)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: SelectableText(logs[index].output, style: TextStyle(fontSize: 13, color: color))),
+                      ],
+                    ));
+              },
+            )));
   }
 }
 
@@ -336,13 +448,44 @@ class ScriptList extends StatefulWidget {
 }
 
 class _ScriptListState extends State<ScriptList> {
-  int selected = -1;
+  Set<int> selected = {};
+  bool isPress = false;
 
   AppLocalizations get localizations => AppLocalizations.of(context)!;
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: rows(widget.scripts));
+    return GestureDetector(
+        onSecondaryTapDown: (details) => showGlobalMenu(details.globalPosition),
+        onTapDown: (details) {
+          if (selected.isEmpty) {
+            return;
+          }
+          if (HardwareKeyboard.instance.isMetaPressed || HardwareKeyboard.instance.isControlPressed) {
+            return;
+          }
+          setState(() {
+            selected.clear();
+          });
+        },
+        child: Listener(
+            onPointerUp: (details) => isPress = false,
+            onPointerDown: (details) => isPress = true,
+            child: Container(
+                padding: const EdgeInsets.only(top: 10),
+                height: 530,
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey.withOpacity(0.2))),
+                child: SingleChildScrollView(
+                    child: Column(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.start, children: [
+                    Container(width: 200, padding: const EdgeInsets.only(left: 10), child: Text(localizations.name)),
+                    SizedBox(width: 50, child: Text(localizations.enable, textAlign: TextAlign.center)),
+                    const VerticalDivider(),
+                    const Expanded(child: Text("URL")),
+                  ]),
+                  const Divider(thickness: 0.5),
+                  Column(children: rows(widget.scripts))
+                ])))));
   }
 
   List<Widget> rows(List<ScriptItem> list) {
@@ -357,23 +500,31 @@ class _ScriptListState extends State<ScriptList> {
           highlightColor: Colors.transparent,
           splashColor: Colors.transparent,
           hoverColor: primaryColor.withOpacity(0.3),
-          onDoubleTap: () async {
-            String script = await (await ScriptManager.instance).getScript(list[index]);
-            if (!mounted) {
+          onDoubleTap: () => showEdit(index),
+          onSecondaryTapDown: (details) => showMenus(details, index),
+          onHover: (hover) {
+            if (isPress && !selected.contains(index)) {
+              setState(() {
+                selected.add(index);
+              });
+            }
+          },
+          onTap: () {
+            if (HardwareKeyboard.instance.isMetaPressed || HardwareKeyboard.instance.isControlPressed) {
+              setState(() {
+                selected.contains(index) ? selected.remove(index) : selected.add(index);
+              });
               return;
             }
-            showDialog(
-                barrierDismissible: false,
-                context: context,
-                builder: (_) => ScriptEdit(scriptItem: list[index], script: script)).then((value) {
-              if (value != null) {
-                setState(() {});
-              }
+            if (selected.isEmpty) {
+              return;
+            }
+            setState(() {
+              selected.clear();
             });
           },
-          onSecondaryTapDown: (details) => showMenus(details, index),
           child: Container(
-              color: selected == index
+              color: selected.contains(index)
                   ? primaryColor.withOpacity(0.8)
                   : index.isEven
                       ? Colors.grey.withOpacity(0.1)
@@ -400,66 +551,120 @@ class _ScriptListState extends State<ScriptList> {
     });
   }
 
+  showGlobalMenu(Offset offset) {
+    showContextMenu(context, offset, items: [
+      PopupMenuItem(height: 35, child: Text(localizations.newBuilt), onTap: () => showEdit()),
+      PopupMenuItem(height: 35, child: Text(localizations.export), onTap: () => export(selected.toList())),
+      const PopupMenuDivider(),
+      PopupMenuItem(height: 35, child: Text(localizations.enableSelect), onTap: () => enableStatus(true)),
+      PopupMenuItem(height: 35, child: Text(localizations.disableSelect), onTap: () => enableStatus(false)),
+      const PopupMenuDivider(),
+      PopupMenuItem(height: 35, child: Text(localizations.deleteSelect), onTap: () => removeScripts(selected.toList())),
+    ]);
+  }
+
   //点击菜单
   showMenus(TapDownDetails details, int index) {
+    if (selected.length > 1) {
+      showGlobalMenu(details.globalPosition);
+      return;
+    }
     setState(() {
-      selected = index;
+      selected.add(index);
     });
+
     showContextMenu(context, details.globalPosition, items: [
-      PopupMenuItem(
-          height: 35,
-          child: Text(localizations.edit),
-          onTap: () async {
-            String script = await (await ScriptManager.instance).getScript(widget.scripts[index]);
-            if (!mounted) {
-              return;
-            }
-            showDialog(
-                barrierDismissible: false,
-                context: context,
-                builder: (_) => ScriptEdit(scriptItem: widget.scripts[index], script: script)).then((value) {
-              if (value != null) {
-                setState(() {});
-              }
-            });
-          }),
-      PopupMenuItem(height: 35, child: Text(localizations.export), onTap: () => export(widget.scripts[index])),
+      PopupMenuItem(height: 35, child: Text(localizations.edit), onTap: () => showEdit(index)),
+      PopupMenuItem(height: 35, child: Text(localizations.export), onTap: () => export([index])),
       PopupMenuItem(
           height: 35,
           child: widget.scripts[index].enabled ? Text(localizations.disabled) : Text(localizations.enable),
           onTap: () {
             widget.scripts[index].enabled = !widget.scripts[index].enabled;
+            _refreshScript();
           }),
       const PopupMenuDivider(),
       PopupMenuItem(
           height: 35,
           child: Text(localizations.delete),
           onTap: () async {
-            (await ScriptManager.instance).removeScript(index);
+            var scriptManager = await ScriptManager.instance;
+            await scriptManager.removeScript(index);
             _refreshScript();
-            if (mounted) FlutterToastr.show(localizations.deleteSuccess, context);
           }),
     ]).then((value) {
-      setState(() {
-        selected = -1;
-      });
+      if (mounted) {
+        setState(() {
+          selected.remove(index);
+        });
+      }
+    });
+  }
+
+  showEdit([int? index]) async {
+    String? script = index == null ? null : await (await ScriptManager.instance).getScript(widget.scripts[index]);
+    if (!mounted) {
+      return;
+    }
+
+    showDialog(
+            barrierDismissible: false,
+            context: context,
+            builder: (_) => ScriptEdit(scriptItem: index == null ? null : widget.scripts[index], script: script))
+        .then((value) {
+      if (value != null) {
+        setState(() {});
+      }
     });
   }
 
   //导出js
-  export(ScriptItem item) async {
+  export(List<int> indexes) async {
+    if (indexes.isEmpty) return;
     //文件名称
-    String fileName = '${item.name}.json';
+    String fileName = 'proxypin-scripts.json';
     String? saveLocation = await DesktopMultiWindow.invokeMethod(0, 'getSaveLocation', fileName);
     WindowController.fromWindowId(widget.windowId).show();
     if (saveLocation == null) {
       return;
     }
-    var json = item.toJson();
-    json.remove("scriptPath");
-    json['script'] = await (await ScriptManager.instance).getScript(item);
+    var scriptManager = await ScriptManager.instance;
+    List<dynamic> json = [];
+    for (var idx in indexes) {
+      var item = widget.scripts[idx];
+      var map = item.toJson();
+      map.remove("scriptPath");
+      map['script'] = await scriptManager.getScript(item);
+      json.add(map);
+    }
+
     final XFile xFile = XFile.fromData(utf8.encode(jsonEncode(json)), mimeType: 'json');
     await xFile.saveTo(saveLocation);
     if (mounted) FlutterToastr.show(localizations.exportSuccess, context);
+  }
+
+  enableStatus(bool enable) {
+    for (var idx in selected) {
+      widget.scripts[idx].enabled = enable;
+    }
+    setState(() {});
+    _refreshScript();
+  }
+
+  removeScripts(List<int> indexes) async {
+    if (indexes.isEmpty) return;
+    showConfirmDialog(context, content: localizations.confirmContent, onConfirm: () async {
+      var scriptManager = await ScriptManager.instance;
+      for (var idx in indexes) {
+        await scriptManager.removeScript(idx);
+      }
+
+      setState(() {
+        selected.clear();
+      });
+      _refreshScript();
+
+      if (mounted) FlutterToastr.show(localizations.deleteSuccess, context);
+    });
   }
 }

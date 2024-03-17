@@ -185,6 +185,7 @@ class NetworkTabState extends State<NetworkTabController> with SingleTickerProvi
       requestUrl = Uri.decodeFull(request.requestUrl);
     } catch (_) {}
     var content = [
+      const SizedBox(height: 10),
       rowWidget("Request URL", requestUrl),
       const SizedBox(height: 20),
       rowWidget("Request Method", request.method.name),
@@ -224,6 +225,7 @@ class NetworkTabState extends State<NetworkTabController> with SingleTickerProvi
 
     return ListView(
         controller: scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
         children: [rowWidget("URI", path), ...message(widget.request.get(), "Request", scrollController)]);
   }
 
@@ -233,7 +235,7 @@ class NetworkTabState extends State<NetworkTabController> with SingleTickerProvi
     }
 
     var scrollController = ScrollController();
-    return ListView(controller: scrollController, children: [
+    return ListView(controller: scrollController, physics: const AlwaysScrollableScrollPhysics(), children: [
       rowWidget("StatusCode", widget.response.get()?.status.toString()),
       ...message(widget.response.get(), "Response", scrollController)
     ]);
@@ -303,9 +305,10 @@ class NetworkTabState extends State<NetworkTabController> with SingleTickerProvi
     return Row(children: [
       Expanded(
           flex: 2,
-          child: Text(name,
+          child: SelectableText(name,
+              contextMenuBuilder: contextMenu,
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: Colors.deepOrangeAccent))),
-      Expanded(flex: 4, child: Text(style: textStyle, value ?? ''))
+      Expanded(flex: 4, child: SelectableText(contextMenuBuilder: contextMenu, style: textStyle, value ?? ''))
     ]);
   }
 }
