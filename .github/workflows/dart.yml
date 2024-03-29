@@ -1,20 +1,33 @@
-name: Dart test
+name: Flutter Dart Building
+
 on:
   push:
-    branches: [ "devel" ]
-  pull_request:
-    branches: [ "devel" ]
+  
+env:
+  FLUTTER_VERSION: '3.19.3'
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: dart-lang/setup-dart@9a04e6d73cca37bd455e0608d7e5092f881fd603
+      - uses: actions/checkout@v4
+      
+      - name: Install Flutter SDK 
+        uses: hughware/flutter-action@v1.0.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+          cache-key: flutter-sdk-${{ runner.os }}-${{ env.FLUTTER_VERSION }}
+
       - name: Install dependencies
-        run: dart pub get
-      - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed
-      - name: Analyze project source
-        run: dart analyze
-      - name: Run tests
-        run: dart test
+      - run: flutter pub get
+
+      - name: Build for Android
+        run: flutter build apk 
+       
+      - name: Upload Artifact for Android
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-app
+          path: build/app/outputs/flutter-apk/app-release.apk
