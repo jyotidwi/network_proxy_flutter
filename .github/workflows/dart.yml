@@ -38,7 +38,7 @@ jobs:
         run: flutter pub get
 
       - name: Flutter build apk for Android
-        run: flutter build apk --no-tree-shake-icons --split-per-abi --release
+        run: flutter build -v apk --no-tree-shake-icons --split-per-abi --release
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
