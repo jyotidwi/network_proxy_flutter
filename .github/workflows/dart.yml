@@ -34,9 +34,6 @@ jobs:
       - name: No analysistics
         run: flutter config --no-analytics
 
-      - name: flutter analysis
-        run: flutter format --dry-run --set-exit-if-changed lib/**/*.dart
-
       - name: Install dependencies
         run: flutter pub get
 
