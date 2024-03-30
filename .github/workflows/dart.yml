@@ -20,7 +20,7 @@ jobs:
         uses: actions/setup-java@v4.2.1
         with:
             distribution: temurin
-            java-version: 1.8
+            java-version: 17
 
       - name: Setup Gradle Build Action
         uses: gradle/gradle-build-action@v3.1.0
@@ -30,6 +30,12 @@ jobs:
         with:
           flutter-version: '3.19.3'
           channel: 'stable'
+
+      - name: No analysistics
+        run: flutter config --no-analytics
+
+      - name: flutter analysis
+        run: flutter format --dry-run --set-exit-if-changed lib/**/*.dart
 
       - name: Install dependencies
         run: flutter pub get
